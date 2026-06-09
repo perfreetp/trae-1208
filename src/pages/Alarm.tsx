@@ -35,7 +35,8 @@ import {
   ReloadOutlined,
   CheckOutlined,
   CloseOutlined,
-  RiseOutlined
+  RiseOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useEnergyStore } from '@/store'
@@ -56,7 +57,7 @@ const typeMap: Record<string, { label: string; icon: React.ReactNode; color: str
 }
 
 export default function Alarm() {
-  const { alarms, resolveAlarm } = useEnergyStore()
+  const { alarms, resolveAlarm, resolveAllAlarms } = useEnergyStore()
   const [detailModal, setDetailModal] = useState(false)
   const [currentAlarm, setCurrentAlarm] = useState<AlarmItem | null>(null)
   const [filterLevel, setFilterLevel] = useState<string>('all')
@@ -87,6 +88,16 @@ export default function Alarm() {
   const handleResolve = (id: string) => {
     resolveAlarm(id)
     message.success('告警已标记为处理')
+  }
+
+  const handleResolveAll = () => {
+    const unresolvedCount = alarms.filter((a) => !a.resolved).length
+    if (unresolvedCount === 0) {
+      message.info('暂无可处理的告警')
+      return
+    }
+    resolveAllAlarms()
+    message.success(`已一键处理 ${unresolvedCount} 条告警`)
   }
 
   const handleViewDetail = (item: AlarmItem) => {
@@ -157,7 +168,7 @@ export default function Alarm() {
       width: 90,
       render: (v: boolean) => v
         ? <Tag color="success"><CheckCircleOutlined /> 已处理</Tag>
-        : <Tag color="red"><ClockOutlined color="#ff4d4f" /> 待处理</Tag>
+        : <Tag color="red"><ClockCircleOutlined style={{ color: '#ff4d4f' }} /> 待处理</Tag>
     },
     {
       title: '操作',
@@ -221,7 +232,7 @@ export default function Alarm() {
         </div>
         <Space>
           <Button icon={<ReloadOutlined />}>刷新</Button>
-          <Button type="primary" icon={<SolutionOutlined />}>
+          <Button type="primary" icon={<SolutionOutlined />} onClick={handleResolveAll}>
             一键处理全部
           </Button>
         </Space>
@@ -398,7 +409,7 @@ export default function Alarm() {
       <Row gutter={16}>
         <Col span={12}>
           <Card
-            title={<span><ClockOutlined /> 告警处理时间线</span>}
+            title={<span><ClockCircleOutlined /> 告警处理时间线</span>}
             size="small"
           >
             <Timeline
@@ -589,7 +600,7 @@ export default function Alarm() {
                   { color: 'green', children: `${dayjs(currentAlarm.time).add(3, 'minute').format('YYYY-MM-DD HH:mm')} 推送给能源主管李明（APP+短信）` },
                   currentAlarm.resolved
                     ? { color: 'success', dot: <CheckCircleOutlined />, children: `${dayjs().format('YYYY-MM-DD HH:mm')} 已标记处理完成` }
-                    : { color: 'gray', children: '待处理中...', dot: <ClockOutlined /> }
+                    : { color: 'gray', children: '待处理中...', dot: <ClockCircleOutlined /> }
                 ]}
               />
             </Card>

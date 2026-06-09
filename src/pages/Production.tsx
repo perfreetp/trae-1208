@@ -66,7 +66,13 @@ export default function Production() {
 
   const handleAddOrder = () => {
     setEditingOrder(null)
-    form.resetFields()
+    form.setFieldsValue({
+      priority: 'normal',
+      quantity: 100,
+      nonStopRequired: false,
+      plannedStart: dayjs('08:00', 'HH:mm'),
+      plannedEnd: dayjs('16:00', 'HH:mm')
+    })
     setOrderModalOpen(true)
   }
 
@@ -511,7 +517,6 @@ export default function Production() {
                 name="priority"
                 label="优先级"
                 rules={[{ required: true, message: '请选择优先级' }]}
-                initialValue="normal"
               >
                 <Select
                   options={[
@@ -539,7 +544,6 @@ export default function Production() {
                 name="quantity"
                 label="工单数量"
                 rules={[{ required: true, message: '请输入数量' }]}
-                initialValue={100}
               >
                 <InputNumber style={{ width: '100%' }} min={1} addonAfter="件" />
               </Form.Item>
@@ -568,7 +572,6 @@ export default function Production() {
           <Form.Item
             name="nonStopRequired"
             label="是否不可停机"
-            initialValue={false}
             valuePropName="checked"
           >
             <Switch

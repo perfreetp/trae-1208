@@ -10,8 +10,163 @@ import type {
   AlarmItem,
   CostPlan,
   ReviewRecord,
-  ForecastFactor
+  ForecastFactor,
+  ScheduleVersion,
+  CrossWindowState
 } from '@/types'
+
+const timeToMinutes = (t: string) => {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+const getElectricityRate = (hour: number): number => {
+  if (hour >= 8 && hour < 11) return 1.28
+  if (hour >= 13 && hour < 15) return 1.28
+  if (hour >= 18 && hour < 21) return 1.28
+  if ((hour >= 22) || (hour < 8)) return 0.32
+  return 0.78
+}
+
+const computeLoadProfilesFromSchedule = (items: ScheduleItem[], demandRedLine: number): LoadProfile[] => {
+  const hourlyElectricity = new Array(24).fill(400)
+  const hourlySteam = new Array(24).fill(80)
+  const hourlyAir = new Array(24).fill(50)
+
+  items.forEach((item) => {
+    const startMin = timeToMinutes(item.startTime)
+    const endMin = timeToMinutes(item.endTime)
+    for (let m = startMin; m < endMin; m++) {
+      const h = Math.floor(m / 60)
+      if (h >= 0 && h < 24) {
+        if (item.type === 'equipment') hourlyElectricity[h] += item.power * (1 / 60)
+        else if (item.type === 'boiler') {
+          hourlySteam[h] += Math.abs(item.power) * (1 / 60) * 4
+          hourlyElectricity[h] += item.power * (1 / 60) * 0.2
+        } else if (item.type === 'compressor') {
+          hourlyAir[h] += Math.abs(item.power) * (1 / 60) * 2
+          hourlyElectricity[h] += item.power * (1 / 60)
+        } else if (item.type === 'storage_charge') {
+          hourlyElectricity[h] += item.power * (1 / 60)
+        } else if (item.type === 'storage_discharge') {
+          hourlyElectricity[h] -= item.power * (1 / 60)
+        }
+      }
+    }
+  })
+
+  return Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    electricity: Math.max(100, Math.round(hourlyElectricity[h])),
+    steam: Math.max(0, Math.round(hourlySteam[h])),
+    compressedAir: Math.max(0, Math.round(hourlyAir[h]))
+  }))
+}
+
+const computePeakFromSchedule = (profiles: LoadProfile[]): { peak: number; peakHour: number; peakHours: number[]; risk: 'low' | 'medium' | 'high'; demandRedLine: number } => {
+  let peak = 0
+  let peakHour = 0
+  const peakHours: number[] = []
+  const line = 2500
+  profiles.forEach((p, i) => {
+    if (p.electricity > peak) {
+      peak = p.electricity
+      peakHour = i
+    }
+    if (p.electricity > line * 0.9) peakHours.push(i)
+  })
+  let risk: 'low' | 'medium' | 'high' = 'low'
+  if (peak > line * 1.02) risk = 'high'
+  else if (peak > line * 0.95) risk = 'medium'
+  return { peak, peakHour, peakHours, risk, demandRedLine: line }
+}
+
+const computeCostFromSchedule = (profiles: LoadProfile[], items: ScheduleItem[]): { totalCost: number; electricityCost: number; steamCost: number; airCost: number; demandCharge: number; peakSaving: number } => {
+  let electricityCost = 0
+  let baseElectricity = 0
+  profiles.forEach((p) => {
+    const rate = getElectricityRate(p.hour)
+    electricityCost += p.electricity * rate
+    baseElectricity += p.electricity * 0.78
+  })
+  const peakSaving = Math.max(0, Math.round(baseElectricity - electricityCost))
+  const steamCost = profiles.reduce((s, p) => s + p.steam * 280 / 1000, 0)
+  const airCost = profiles.reduce((s, p) => s + p.compressedAir * 0.18, 0)
+  const peak = Math.max(...profiles.map((p) => p.electricity))
+  let demandCharge = 0
+  if (peak > 2500) demandCharge = (peak - 2500) * 80
+  else if (peak > 2200) demandCharge = 8000
+  else demandCharge = 3000
+  return {
+    totalCost: Math.round(electricityCost + steamCost + airCost + demandCharge),
+    electricityCost: Math.round(electricityCost),
+    steamCost: Math.round(steamCost),
+    airCost: Math.round(airCost),
+    demandCharge,
+    peakSaving
+  }
+}
+
+const defaultScheduleItems: ScheduleItem[] = [
+  { id: 'sch1', type: 'equipment', name: '冲压机A运行', startTime: '08:00', endTime: '14:00', power: 180, status: 'running' },
+  { id: 'sch2', type: 'equipment', name: '焊接机器人组', startTime: '09:00', endTime: '17:00', power: 220, status: 'running' },
+  { id: 'sch3', type: 'equipment', name: 'CNC加工中心A', startTime: '08:00', endTime: '20:00', power: 95, status: 'running' },
+  { id: 'sch4', type: 'equipment', name: 'CNC加工中心B', startTime: '08:00', endTime: '18:00', power: 95, status: 'running' },
+  { id: 'sch5', type: 'equipment', name: '总装线运行', startTime: '08:00', endTime: '22:00', power: 180, status: 'running' },
+  { id: 'sch6', type: 'boiler', name: '锅炉1号供汽', startTime: '07:00', endTime: '22:00', power: 45, status: 'running' },
+  { id: 'sch7', type: 'compressor', name: '空压机A供气', startTime: '07:30', endTime: '22:30', power: 110, status: 'running' },
+  { id: 'sch8', type: 'compressor', name: '空压机B供气', startTime: '10:00', endTime: '16:00', power: 90, status: 'scheduled' },
+  { id: 'sch9', type: 'storage_charge', name: '储能低谷充电', startTime: '02:00', endTime: '06:00', power: 500, status: 'completed' },
+  { id: 'sch10', type: 'storage_discharge', name: '储能高峰放电', startTime: '14:00', endTime: '18:00', power: 500, status: 'scheduled' }
+]
+
+const initialProfiles = computeLoadProfilesFromSchedule(defaultScheduleItems, 2500)
+const initialPeak = computePeakFromSchedule(initialProfiles)
+const initialCost = computeCostFromSchedule(initialProfiles, defaultScheduleItems)
+
+const initialVersions: ScheduleVersion[] = [
+  {
+    id: 'v1',
+    name: 'V1 基准方案',
+    createdAt: '2026-06-08 09:00',
+    remark: '原始基准排程，无储能优化',
+    items: [
+      { id: 'v1_1', type: 'equipment', name: '冲压机A运行', startTime: '08:00', endTime: '14:00', power: 180, status: 'scheduled' },
+      { id: 'v1_2', type: 'equipment', name: '焊接机器人组', startTime: '09:00', endTime: '17:00', power: 220, status: 'scheduled' },
+      { id: 'v1_3', type: 'equipment', name: 'CNC加工中心A', startTime: '08:00', endTime: '20:00', power: 95, status: 'scheduled' },
+      { id: 'v1_4', type: 'equipment', name: 'CNC加工中心B', startTime: '08:00', endTime: '18:00', power: 95, status: 'scheduled' },
+      { id: 'v1_5', type: 'equipment', name: '总装线运行', startTime: '08:00', endTime: '22:00', power: 180, status: 'scheduled' },
+      { id: 'v1_6', type: 'boiler', name: '锅炉1号供汽', startTime: '08:00', endTime: '22:00', power: 45, status: 'scheduled' },
+      { id: 'v1_7', type: 'compressor', name: '空压机A供气', startTime: '08:00', endTime: '22:00', power: 110, status: 'scheduled' },
+      { id: 'v1_8', type: 'compressor', name: '空压机B供气', startTime: '09:00', endTime: '17:00', power: 90, status: 'scheduled' }
+    ],
+    estimatedCost: 286500,
+    estimatedPeak: 2650,
+    estimatedPeakRisk: 'high',
+    estimatedPeakSaving: 0
+  },
+  {
+    id: 'v2',
+    name: 'V2 移峰填谷',
+    createdAt: '2026-06-08 11:30',
+    remark: '部分设备移至平段，锅炉提前启动',
+    items: [
+      { id: 'v2_1', type: 'equipment', name: '冲压机A运行', startTime: '09:30', endTime: '15:30', power: 180, status: 'scheduled' },
+      { id: 'v2_2', type: 'equipment', name: '焊接机器人组', startTime: '10:00', endTime: '18:00', power: 220, status: 'scheduled' },
+      { id: 'v2_3', type: 'equipment', name: 'CNC加工中心A', startTime: '08:00', endTime: '20:00', power: 95, status: 'scheduled' },
+      { id: 'v2_4', type: 'equipment', name: 'CNC加工中心B', startTime: '12:00', endTime: '22:00', power: 95, status: 'scheduled' },
+      { id: 'v2_5', type: 'equipment', name: '总装线运行', startTime: '08:00', endTime: '22:00', power: 180, status: 'scheduled' },
+      { id: 'v2_6', type: 'boiler', name: '锅炉1号供汽', startTime: '06:30', endTime: '21:30', power: 45, status: 'scheduled' },
+      { id: 'v2_7', type: 'compressor', name: '空压机A供气', startTime: '07:30', endTime: '21:30', power: 110, status: 'scheduled' },
+      { id: 'v2_8', type: 'compressor', name: '空压机B供气', startTime: '11:00', endTime: '17:00', power: 90, status: 'scheduled' },
+      { id: 'v2_9', type: 'storage_charge', name: '储能低谷充电', startTime: '02:00', endTime: '05:00', power: 500, status: 'scheduled' }
+    ],
+    estimatedCost: 254200,
+    estimatedPeak: 2520,
+    estimatedPeakRisk: 'medium',
+    estimatedPeakSaving: 32300
+  }
+]
 
 interface EnergyStore {
   currentDate: string
@@ -30,6 +185,9 @@ interface EnergyStore {
   reviewRecords: ReviewRecord[]
   forecastFactors: ForecastFactor
   selectedPlanId: string
+  scheduleVersions: ScheduleVersion[]
+  currentVersionId: string | null
+  crossWindow: CrossWindowState
 
   setCurrentDate: (date: string) => void
   setForecastFactors: (factors: Partial<ForecastFactor>) => void
@@ -39,35 +197,27 @@ interface EnergyStore {
   addScheduleItem: (item: ScheduleItem) => void
   updateScheduleItem: (id: string, updates: Partial<ScheduleItem>) => void
   deleteScheduleItem: (id: string) => void
+  recalculateFromSchedule: () => void
   resolveAlarm: (id: string) => void
+  resolveAllAlarms: () => void
   selectPlan: (id: string) => void
-  addReviewRecord: (record: ReviewRecord) => void
-  updateReviewRecord: (id: string, updates: Partial<ReviewRecord>) => void
+
+  saveCurrentAsVersion: (name: string, remark?: string) => void
+  switchToVersion: (id: string) => void
+  duplicateVersion: (id: string, newName: string) => void
+  deleteVersion: (id: string) => void
+
+  setForecastHighRisk: (hours: number[]) => void
+  jumpFromForecastToSchedule: (riskHours: number[]) => void
+  clearFromForecastFlag: () => void
+  setHighlightRiskSlots: (on: boolean) => void
 }
 
-const generateLoadProfiles = (): LoadProfile[] => {
-  return Array.from({ length: 24 }, (_, i) => {
-    let base = 500
-    if (i >= 8 && i < 12) base = 1800
-    else if (i >= 13 && i < 18) base = 2000
-    else if (i >= 18 && i < 22) base = 1500
-    else if (i >= 0 && i < 6) base = 400
-    else base = 900
-    const random = Math.floor(Math.random() * 200 - 100)
-    return {
-      hour: i,
-      electricity: base + random,
-      steam: Math.floor((base + random) * 0.35),
-      compressedAir: Math.floor((base + random) * 0.25)
-    }
-  })
-}
-
-export const useEnergyStore = create<EnergyStore>((set) => ({
+export const useEnergyStore = create<EnergyStore>((set, get) => ({
   currentDate: new Date().toISOString().split('T')[0],
   demandRedLine: 2500,
-  currentLoad: 1680,
-  peakLoad: 2150,
+  currentLoad: initialProfiles[new Date().getHours()]?.electricity || 1680,
+  peakLoad: initialPeak.peak,
   energyPrices: {
     electricity: { peak: 1.28, flat: 0.78, valley: 0.32 },
     steam: 280,
@@ -82,7 +232,7 @@ export const useEnergyStore = create<EnergyStore>((set) => ({
     { id: 'w5', name: '涂装车间', status: 'alarm', load: 180, efficiency: 72 },
     { id: 'w6', name: '动力车间', status: 'running', load: 240, efficiency: 89 }
   ],
-  loadProfiles: generateLoadProfiles(),
+  loadProfiles: initialProfiles,
   shifts: [
     { id: 's1', name: '早班', startTime: '08:00', endTime: '16:00', workers: 120 },
     { id: 's2', name: '中班', startTime: '16:00', endTime: '00:00', workers: 80 },
@@ -109,18 +259,7 @@ export const useEnergyStore = create<EnergyStore>((set) => ({
     { id: 'wo4', name: '变速箱零件加工', equipment: 'CNC加工中心B', priority: 'high', plannedStart: '08:00', plannedEnd: '18:00', quantity: 150, nonStopRequired: false },
     { id: 'wo5', name: '整车装配C200', equipment: '总装线', priority: 'urgent', plannedStart: '08:00', plannedEnd: '22:00', quantity: 80, nonStopRequired: true }
   ],
-  scheduleItems: [
-    { id: 'sch1', type: 'equipment', name: '冲压机A运行', startTime: '08:00', endTime: '14:00', power: 180, status: 'running' },
-    { id: 'sch2', type: 'equipment', name: '焊接机器人组', startTime: '09:00', endTime: '17:00', power: 220, status: 'running' },
-    { id: 'sch3', type: 'equipment', name: 'CNC加工中心A', startTime: '08:00', endTime: '20:00', power: 95, status: 'running' },
-    { id: 'sch4', type: 'equipment', name: 'CNC加工中心B', startTime: '08:00', endTime: '18:00', power: 95, status: 'running' },
-    { id: 'sch5', type: 'equipment', name: '总装线运行', startTime: '08:00', endTime: '22:00', power: 180, status: 'running' },
-    { id: 'sch6', type: 'boiler', name: '锅炉1号供汽', startTime: '07:00', endTime: '22:00', power: 45, status: 'running' },
-    { id: 'sch7', type: 'compressor', name: '空压机A供气', startTime: '07:30', endTime: '22:30', power: 110, status: 'running' },
-    { id: 'sch8', type: 'compressor', name: '空压机B供气', startTime: '10:00', endTime: '16:00', power: 90, status: 'scheduled' },
-    { id: 'sch9', type: 'storage_charge', name: '储能低谷充电', startTime: '02:00', endTime: '06:00', power: 500, status: 'completed' },
-    { id: 'sch10', type: 'storage_discharge', name: '储能高峰放电', startTime: '14:00', endTime: '18:00', power: 500, status: 'scheduled' }
-  ],
+  scheduleItems: defaultScheduleItems,
   alarms: [
     { id: 'a1', type: 'over_demand', level: 'critical', title: '峰值用电超需量预警', description: '14:00-16:00 预计最大负荷将达到2650kW，超出需量红线2500kW', time: '2026-06-09 13:45', source: 'EMS系统', resolved: false },
     { id: 'a2', type: 'low_efficiency', level: 'warning', title: '涂装车间效率偏低', description: '涂装车间当前综合效率72%，低于标准值85%，建议检查设备状态', time: '2026-06-09 11:20', source: '车间监控', resolved: false },
@@ -129,7 +268,7 @@ export const useEnergyStore = create<EnergyStore>((set) => ({
     { id: 'a5', type: 'equipment_fault', level: 'critical', title: '涂装线设备维护', description: '涂装流水线循环泵异常，已切换至维护模式，预计16:00恢复', time: '2026-06-09 09:30', source: '设备管理', resolved: false }
   ],
   costPlans: [
-    { id: 'p1', name: '方案A：基准方案', totalCost: 286500, electricityCost: 182400, steamCost: 58800, airCost: 25300, carbon: 48.5, risk: 'low', demandCharge: 20000, peakSaving: 0 },
+    { id: 'p1', name: '方案A：基准方案', totalCost: initialCost.totalCost, electricityCost: initialCost.electricityCost, steamCost: initialCost.steamCost, airCost: initialCost.airCost, carbon: 48.5, risk: 'low', demandCharge: initialCost.demandCharge, peakSaving: initialCost.peakSaving },
     { id: 'p2', name: '方案B：移峰填谷', totalCost: 254200, electricityCost: 156300, steamCost: 54500, airCost: 23400, carbon: 45.2, risk: 'medium', demandCharge: 15000, peakSaving: 32300 },
     { id: 'p3', name: '方案C：储能优化', totalCost: 238800, electricityCost: 142500, steamCost: 53200, airCost: 22100, carbon: 42.8, risk: 'low', demandCharge: 11000, peakSaving: 47700 },
     { id: 'p4', name: '方案D：全面优化', totalCost: 229600, electricityCost: 135800, steamCost: 51500, airCost: 21300, carbon: 40.1, risk: 'medium', demandCharge: 9000, peakSaving: 56900 }
@@ -147,6 +286,14 @@ export const useEnergyStore = create<EnergyStore>((set) => ({
     shiftArrangement: '正常三班'
   },
   selectedPlanId: 'p3',
+  scheduleVersions: initialVersions,
+  currentVersionId: null,
+  crossWindow: {
+    forecastHighRiskHours: [],
+    fromForecastJump: false,
+    highlightRiskSlots: false,
+    lastScheduleVersionId: null
+  },
 
   setCurrentDate: (date) => set({ currentDate: date }),
   setForecastFactors: (factors) => set((state) => ({ forecastFactors: { ...state.forecastFactors, ...factors } })),
@@ -157,19 +304,164 @@ export const useEnergyStore = create<EnergyStore>((set) => ({
   deleteWorkOrder: (id) => set((state) => ({
     workOrders: state.workOrders.filter((o) => o.id !== id)
   })),
-  addScheduleItem: (item) => set((state) => ({ scheduleItems: [...state.scheduleItems, item] })),
-  updateScheduleItem: (id, updates) => set((state) => ({
-    scheduleItems: state.scheduleItems.map((s) => (s.id === id ? { ...s, ...updates } : s))
-  })),
-  deleteScheduleItem: (id) => set((state) => ({
-    scheduleItems: state.scheduleItems.filter((s) => s.id !== id)
-  })),
+
+  addScheduleItem: (item) => set((state) => {
+    const newItems = [...state.scheduleItems, item]
+    const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    const workshops = state.workshops.map((w) => w.id === 'w5' && peak.peak < 2500 ? { ...w, status: 'running' as const, efficiency: 88 } : w)
+    return {
+      scheduleItems: newItems,
+      loadProfiles: profiles,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
+      peakLoad: peak.peak,
+      workshops,
+      currentVersionId: null
+    }
+  }),
+  updateScheduleItem: (id, updates) => set((state) => {
+    const newItems = state.scheduleItems.map((s) => (s.id === id ? { ...s, ...updates } : s))
+    const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    const prevCritical = state.alarms.filter((a) => a.type === 'over_demand' && a.level === 'critical' && !a.resolved).length
+    let alarms = state.alarms
+    if (peak.peak > state.demandRedLine && prevCritical === 0) {
+      alarms = [
+        ...alarms.filter((a) => !(a.type === 'over_demand' && a.title === '峰值用电超需量预警(自动)')),
+        {
+          id: `auto_alarm_${Date.now()}`,
+          type: 'over_demand',
+          level: 'critical',
+          title: '峰值用电超需量预警(自动)',
+          description: `排程调整后，${peak.peakHour}:00 预计最大负荷达到 ${peak.peak}kW，超出需量红线 ${state.demandRedLine}kW`,
+          time: new Date().toISOString().slice(0, 16).replace('T', ' '),
+          source: '排程引擎',
+          resolved: false
+        }
+      ]
+    } else if (peak.peak <= state.demandRedLine && prevCritical > 0) {
+      alarms = alarms.map((a) => (a.type === 'over_demand' && a.title.includes('(自动)') ? { ...a, resolved: true } : a))
+    }
+    return {
+      scheduleItems: newItems,
+      loadProfiles: profiles,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
+      peakLoad: peak.peak,
+      alarms,
+      currentVersionId: null
+    }
+  }),
+  deleteScheduleItem: (id) => set((state) => {
+    const newItems = state.scheduleItems.filter((s) => s.id !== id)
+    const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    return {
+      scheduleItems: newItems,
+      loadProfiles: profiles,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
+      peakLoad: peak.peak,
+      currentVersionId: null
+    }
+  }),
+  recalculateFromSchedule: () => {
+    const state = get()
+    const profiles = computeLoadProfilesFromSchedule(state.scheduleItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    set({
+      loadProfiles: profiles,
+      peakLoad: peak.peak,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad
+    })
+  },
   resolveAlarm: (id) => set((state) => ({
     alarms: state.alarms.map((a) => (a.id === id ? { ...a, resolved: true } : a))
+  })),
+  resolveAllAlarms: () => set((state) => ({
+    alarms: state.alarms.map((a) => ({ ...a, resolved: true }))
   })),
   selectPlan: (id) => set({ selectedPlanId: id }),
   addReviewRecord: (record) => set((state) => ({ reviewRecords: [record, ...state.reviewRecords] })),
   updateReviewRecord: (id, updates) => set((state) => ({
     reviewRecords: state.reviewRecords.map((r) => (r.id === id ? { ...r, ...updates } : r))
+  })),
+
+  saveCurrentAsVersion: (name, remark = '') => set((state) => {
+    const profiles = computeLoadProfilesFromSchedule(state.scheduleItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    const cost = computeCostFromSchedule(profiles, state.scheduleItems)
+    const items = state.scheduleItems.map((i) => ({ ...i }))
+    const versionId = `v${Date.now()}`
+    const newVersion: ScheduleVersion = {
+      id: versionId,
+      name,
+      createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      remark,
+      items,
+      estimatedCost: cost.totalCost,
+      estimatedPeak: peak.peak,
+      estimatedPeakRisk: peak.risk,
+      estimatedPeakSaving: cost.peakSaving
+    }
+    return {
+      scheduleVersions: [...state.scheduleVersions, newVersion],
+      currentVersionId: versionId,
+      crossWindow: { ...state.crossWindow, lastScheduleVersionId: versionId }
+    }
+  }),
+  switchToVersion: (id) => set((state) => {
+    const version = state.scheduleVersions.find((v) => v.id === id)
+    if (!version) return state
+    const items = version.items.map((i) => ({ ...i }))
+    const profiles = computeLoadProfilesFromSchedule(items, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    return {
+      scheduleItems: items,
+      currentVersionId: id,
+      loadProfiles: profiles,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
+      peakLoad: peak.peak,
+      crossWindow: { ...state.crossWindow, lastScheduleVersionId: id }
+    }
+  }),
+  duplicateVersion: (id, newName) => set((state) => {
+    const version = state.scheduleVersions.find((v) => v.id === id)
+    if (!version) return state
+    const newId = `v${Date.now()}`
+    const copy: ScheduleVersion = {
+      ...version,
+      id: newId,
+      name: newName,
+      createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      remark: `复制自 ${version.name}`,
+      items: version.items.map((i) => ({ ...i, id: `${newId}_${i.id}_${Date.now()}` }))
+    }
+    return { scheduleVersions: [...state.scheduleVersions, copy] }
+  }),
+  deleteVersion: (id) => set((state) => ({
+    scheduleVersions: state.scheduleVersions.filter((v) => v.id !== id),
+    currentVersionId: state.currentVersionId === id ? null : state.currentVersionId
+  })),
+
+  setForecastHighRisk: (hours) => set((state) => ({
+    crossWindow: { ...state.crossWindow, forecastHighRiskHours: hours }
+  })),
+  jumpFromForecastToSchedule: (riskHours) => {
+    set((state) => ({
+      crossWindow: {
+        ...state.crossWindow,
+        forecastHighRiskHours: riskHours,
+        fromForecastJump: true,
+        highlightRiskSlots: true
+      }
+    }))
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      ;(window as any).electronAPI.openWindow('schedule', '/schedule')
+    }
+  },
+  clearFromForecastFlag: () => set((state) => ({
+    crossWindow: { ...state.crossWindow, fromForecastJump: false }
+  })),
+  setHighlightRiskSlots: (on) => set((state) => ({
+    crossWindow: { ...state.crossWindow, highlightRiskSlots: on }
   }))
 }))

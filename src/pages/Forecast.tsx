@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   Form,
@@ -30,7 +30,14 @@ import dayjs from 'dayjs'
 import { useEnergyStore } from '@/store'
 
 export default function Forecast() {
-  const { forecastFactors, setForecastFactors, loadProfiles, demandRedLine } = useEnergyStore()
+  const {
+    forecastFactors,
+    setForecastFactors,
+    loadProfiles,
+    demandRedLine,
+    jumpFromForecastToSchedule,
+    setForecastHighRisk
+  } = useEnergyStore()
   const [form] = Form.useForm()
   const [forecastDate, setForecastDate] = useState<dayjs.Dayjs | null>(dayjs().add(1, 'day'))
 
@@ -95,6 +102,15 @@ export default function Forecast() {
   const totalAir = forecastProfiles.reduce((s, p) => s + p.compressedAir, 0)
   const peakForecast = Math.max(...forecastProfiles.map((p) => p.electricity))
   const peakHour = forecastProfiles.find((p) => p.electricity === peakForecast)?.hour
+
+  const highRiskHours = forecastProfiles
+    .filter((p) => p.electricity > demandRedLine * 0.9)
+    .map((p) => p.hour)
+    .sort((a, b) => a - b)
+
+  useEffect(() => {
+    if (highRiskHours.length > 0) setForecastHighRisk(highRiskHours)
+  }, [highRiskHours, setForecastHighRisk])
 
   const compareOption = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
@@ -403,12 +419,50 @@ export default function Forecast() {
         <Col span={17}>
           {peakForecast > demandRedLine && (
             <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={
+                <Space>
+                  <span>⚠️ 预测峰值负荷 <b>{peakForecast}kW</b> 超过需量红线 <b>{demandRedLine}kW</b>，超 {(peakForecast - demandRedLine).toFixed(0)}kW</span>
+                  <Tag color="red">高风险时段: {highRiskHours.slice(0, 4).map((h) => h + ':00').join(', ')}{highRiskHours.length > 4 ? `…+${highRiskHours.length - 4}h` : ''}</Tag>
+                </Space>
+              }
+              description={
+                <Space>
+                  <span>
+                    预计 {peakHour?.toString().padStart(2, '0')}:00 左右出现峰值，可通过储能放电或负荷转移降低
+                  </span>
+                  <Button
+                    size="small"
+                    type="primary"
+                    danger
+                    onClick={() => {
+                      jumpFromForecastToSchedule(highRiskHours)
+                    }}
+                  >
+                    去排程优化 →
+                  </Button>
+                </Space>
+              }
+              action={<div />}
+            />
+          )}
+          {peakForecast <= demandRedLine && peakForecast > demandRedLine * 0.9 && (
+            <Alert
               type="warning"
               showIcon
               style={{ marginBottom: 12 }}
-              message={`⚠️ 预测峰值负荷 ${peakForecast}kW 超过需量红线 ${demandRedLine}kW，建议采取移峰填谷措施`}
-              description={`预计 ${peakHour?.toString().padStart(2, '0')}:00 左右出现峰值，可通过储能放电或负荷转移降低 ${(peakForecast - demandRedLine).toFixed(0)}kW`}
-              action={<Button size="small" type="primary" onClick={() => window.electronAPI?.openWindow('schedule', '/schedule')}>去排程</Button>}
+              message={`预测峰值 ${peakForecast}kW 接近红线 (${demandRedLine}kW)，利用率 ${Math.round(peakForecast / demandRedLine * 100)}%`}
+              description="可提前调整排程以预留安全裕度"
+              action={
+                <Button
+                  size="small"
+                  onClick={() => jumpFromForecastToSchedule(highRiskHours)}
+                >
+                  去排程
+                </Button>
+              }
             />
           )}
 

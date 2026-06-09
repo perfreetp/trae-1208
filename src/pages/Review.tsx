@@ -298,7 +298,12 @@ export default function Review() {
             编辑
           </Button>
           <Tooltip title="导出该日报告">
-            <Button type="link" size="small" icon={<FileTextOutlined />}>
+            <Button
+              type="link"
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={() => handleExportExcel(record)}
+            >
               导出
             </Button>
           </Tooltip>
@@ -345,6 +350,278 @@ export default function Review() {
     }
   ]
 
+  const handleExportExcel = (record: ReviewRecord) => {
+    const planCost = 260000 + record.deviation * 2000
+    const actualCost = 260000 + record.deviation * 5000
+    const diff = actualCost - planCost
+
+    const header = [
+      ['工厂多能源排程复盘报表'],
+      ['生成时间', new Date().toLocaleString()],
+      ['', ''],
+      ['一、复盘基础信息'],
+      ['复盘日期', record.date],
+      ['排程方案', record.schedulePlan],
+      ['创建时间', new Date().toLocaleString()],
+      ['', ''],
+      ['二、执行情况'],
+      ['实际执行摘要', record.actualExecution],
+      ['偏差率', `${record.deviation}%`],
+      ['偏差原因分析', record.deviationReason],
+      ['', ''],
+      ['三、费用对比分析'],
+      ['项目', '计划金额(¥)', '实际金额(¥)', '偏差(¥)'],
+      ['总费用', planCost.toLocaleString(), actualCost.toLocaleString(), `+${diff.toLocaleString()}`],
+      ['其中：电费', Math.round(planCost * 0.65).toLocaleString(), Math.round(actualCost * 0.65).toLocaleString(), `+${Math.round(diff * 0.65).toLocaleString()}`],
+      ['其中：蒸汽费', Math.round(planCost * 0.2).toLocaleString(), Math.round(actualCost * 0.2).toLocaleString(), `+${Math.round(diff * 0.2).toLocaleString()}`],
+      ['其中：空压费', Math.round(planCost * 0.08).toLocaleString(), Math.round(actualCost * 0.08).toLocaleString(), `+${Math.round(diff * 0.08).toLocaleString()}`],
+      ['其中：需量费', Math.round(planCost * 0.07).toLocaleString(), Math.round(actualCost * 0.07).toLocaleString(), `+${Math.round(diff * 0.07).toLocaleString()}`],
+      ['', ''],
+      ['四、审批信息'],
+      ['审批人', record.approver],
+      ['审批状态', record.approvalStatus === 'approved' ? '已通过' : record.approvalStatus === 'rejected' ? '已驳回' : '待审批'],
+      ['审批意见', record.approvalOpinion || '（无）'],
+      ['', ''],
+      ['五、备注', record.remarks || '（无）'],
+      ['', ''],
+      ['--- 报表结束 ---']
+    ]
+
+    const csvContent = header.map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n')
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const fileName = `复盘报表_${record.date}_${Date.now()}.csv`
+
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', fileName)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    message.success({
+      content: (
+        <div>
+          Excel 报表导出成功！
+          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+            文件名: {fileName}<br />
+            已保存至浏览器默认下载目录
+          </div>
+        </div>
+      ),
+      duration: 4
+    })
+  }
+
+  const handleExportPDF = (record: ReviewRecord) => {
+    const planCost = 260000 + record.deviation * 2000
+    const actualCost = 260000 + record.deviation * 5000
+    const diff = actualCost - planCost
+    const diffPct = record.deviation
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>复盘报表 - ${record.date}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Microsoft YaHei', sans-serif; padding: 40px; color: #262626; max-width: 800px; margin: 0 auto; }
+  .header { text-align: center; border-bottom: 2px solid #1677ff; padding-bottom: 20px; margin-bottom: 24px; }
+  .header h1 { color: #1677ff; font-size: 28px; margin-bottom: 8px; }
+  .header p { color: #8c8c8c; font-size: 13px; }
+  .section { margin-bottom: 28px; }
+  .section h2 { font-size: 16px; color: #1677ff; border-left: 4px solid #1677ff; padding-left: 10px; margin-bottom: 14px; background: #e6f4ff; padding: 8px 12px; border-radius: 0 4px 4px 0; }
+  .info-grid { display: grid; grid-template-columns: 120px 1fr; gap: 10px; font-size: 14px; }
+  .info-grid .label { color: #8c8c8c; }
+  .info-grid .value { font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { border: 1px solid #d9d9d9; padding: 10px 12px; text-align: left; }
+  th { background: #fafafa; color: #595959; font-weight: 600; }
+  .row-diff { color: ${diff > 0 ? '#ff4d4f' : '#52c41a'}; font-weight: 600; }
+  .deviation-tag { display: inline-block; padding: 4px 12px; border-radius: 4px; background: ${diffPct > 5 ? '#fff1f0' : '#f6ffed'}; color: ${diffPct > 5 ? '#ff4d4f' : '#52c41a'}; font-weight: 600; border: 1px solid ${diffPct > 5 ? '#ffa39e' : '#b7eb8f'}; }
+  .approval-box { padding: 16px; background: ${record.approvalStatus === 'approved' ? '#f6ffed' : record.approvalStatus === 'rejected' ? '#fff1f0' : '#fff7e6'}; border-radius: 6px; border-left: 4px solid ${record.approvalStatus === 'approved' ? '#52c41a' : record.approvalStatus === 'rejected' ? '#ff4d4f' : '#faad14'}; }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px dashed #d9d9d9; text-align: center; color: #8c8c8c; font-size: 12px; }
+  .stamp-box { float: right; width: 120px; height: 80px; border: 2px dashed ${record.approvalStatus === 'approved' ? '#52c41a' : '#d9d9d9'}; color: ${record.approvalStatus === 'approved' ? '#52c41a' : '#bfbfbf'}; display: flex; align-items: center; justify-content: center; font-weight: 700; transform: rotate(-10deg); border-radius: 50%; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>📊 工厂多能源排程复盘报表</h1>
+    <p>报告编号: ESR-${record.date}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')} | 生成时间: ${new Date().toLocaleString()}</p>
+  </div>
+
+  <div class="section">
+    <h2>一、复盘基础信息</h2>
+    <div style="display: flex; justify-content: space-between;">
+      <div class="info-grid">
+        <div class="label">复盘日期</div><div class="value">${record.date}</div>
+        <div class="label">排程方案</div><div class="value">${record.schedulePlan}</div>
+        <div class="label">审批人</div><div class="value">${record.approver}</div>
+      </div>
+      <div class="stamp-box">
+        ${record.approvalStatus === 'approved' ? '✓ 已通过' : record.approvalStatus === 'rejected' ? '✗ 已驳回' : '待审批'}
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>二、执行情况与偏差分析</h2>
+    <div class="info-grid" style="grid-template-columns: 140px 1fr; margin-bottom: 14px;">
+      <div class="label">实际执行摘要</div>
+      <div class="value">${record.actualExecution}</div>
+      <div class="label">偏差率</div>
+      <div class="value"><span class="deviation-tag">${diffPct}%</span></div>
+      <div class="label">偏差原因分析</div>
+      <div class="value">${record.deviationReason}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>三、费用对比分析（单位：元）</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>项目</th>
+          <th style="text-align:right">计划金额</th>
+          <th style="text-align:right">实际金额</th>
+          <th style="text-align:right">偏差</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>电费</td>
+          <td style="text-align:right">¥${Math.round(planCost * 0.65).toLocaleString()}</td>
+          <td style="text-align:right">¥${Math.round(actualCost * 0.65).toLocaleString()}</td>
+          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.65).toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td>蒸汽费</td>
+          <td style="text-align:right">¥${Math.round(planCost * 0.2).toLocaleString()}</td>
+          <td style="text-align:right">¥${Math.round(actualCost * 0.2).toLocaleString()}</td>
+          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.2).toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td>空压费</td>
+          <td style="text-align:right">¥${Math.round(planCost * 0.08).toLocaleString()}</td>
+          <td style="text-align:right">¥${Math.round(actualCost * 0.08).toLocaleString()}</td>
+          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.08).toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td>需量费</td>
+          <td style="text-align:right">¥${Math.round(planCost * 0.07).toLocaleString()}</td>
+          <td style="text-align:right">¥${Math.round(actualCost * 0.07).toLocaleString()}</td>
+          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.07).toLocaleString()}</td>
+        </tr>
+        <tr style="background:#fafafa; font-weight:600">
+          <td>合计</td>
+          <td style="text-align:right">¥${planCost.toLocaleString()}</td>
+          <td style="text-align:right">¥${actualCost.toLocaleString()}</td>
+          <td class="row-diff" style="text-align:right">+¥${diff.toLocaleString()} (${diffPct}%)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>四、审批记录</h2>
+    <div class="approval-box">
+      <div style="margin-bottom:8px;"><b>审批人：</b>${record.approver} &nbsp;&nbsp; <b>状态：</b>${record.approvalStatus === 'approved' ? '✅ 已通过' : record.approvalStatus === 'rejected' ? '❌ 已驳回' : '⏳ 待审批'}</div>
+      <div><b>审批意见：</b>${record.approvalOpinion || '（暂无审批意见）'}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>五、备注说明</h2>
+    <div style="padding: 12px; background: #fafafa; border-radius: 4px; font-size: 14px; line-height: 1.8;">
+      ${record.remarks || '（无）'}
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>本报表由「工厂多能源排程工作台」自动生成 | ESR-v1.0</p>
+    <p style="margin-top: 4px;">如有疑问请联系能源管理部门 · 本报告为系统导出版本</p>
+  </div>
+</body>
+</html>`
+
+    const fileName = `复盘报表_${record.date}_${Date.now()}.html`
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+
+    const printWindow = window.open(url, '_blank', 'width=900,height=1000')
+    if (printWindow) {
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.focus()
+          try { printWindow.print() } catch {}
+        }, 800)
+      }
+    }
+
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', fileName)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    message.success({
+      content: (
+        <div>
+          PDF 报表已生成！
+          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+            1. 已在新窗口打开（可 Ctrl+P 保存为PDF）<br />
+            2. 同时下载了 HTML 版本: {fileName}<br />
+            3. 浏览器默认下载目录
+          </div>
+        </div>
+      ),
+      duration: 5
+    })
+
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+  }
+
+  const handlePrint = (record: ReviewRecord) => {
+    handleExportPDF(record)
+  }
+
+  const handleBatchExportExcel = () => {
+    const header = [
+      ['复盘日期', '排程方案', '实际执行摘要', '偏差率%', '偏差原因', '审批人', '审批状态', '审批意见', '备注'],
+      ...reviewRecords.map((r) => [
+        r.date,
+        r.schedulePlan,
+        r.actualExecution,
+        r.deviation.toString(),
+        r.deviationReason,
+        r.approver,
+        r.approvalStatus === 'approved' ? '已通过' : r.approvalStatus === 'rejected' ? '已驳回' : '待审批',
+        r.approvalOpinion,
+        r.remarks
+      ])
+    ]
+    const csvContent = header.map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n')
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const fileName = `复盘报表_批量_${new Date().toISOString().slice(0,10)}.csv`
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    message.success(`批量导出 ${reviewRecords.length} 条复盘记录成功！`)
+  }
+
   return (
     <div className="page-container">
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -355,8 +632,8 @@ export default function Review() {
           </div>
         </div>
         <Space>
-          <Button icon={<ExportOutlined />}>批量导出</Button>
-          <Button icon={<PrinterOutlined />}>打印</Button>
+          <Button icon={<ExportOutlined />} onClick={handleBatchExportExcel}>批量导出</Button>
+          <Button icon={<PrinterOutlined />} onClick={() => reviewRecords[0] && handlePrint(reviewRecords[0])}>打印</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
             新建复盘
           </Button>
@@ -456,8 +733,8 @@ export default function Review() {
                 { value: 'rejected', label: '已驳回' }
               ]}
             />
-            <Button size="small" icon={<FileExcelOutlined />}>Excel</Button>
-            <Button size="small" icon={<FilePdfOutlined />}>PDF</Button>
+            <Button size="small" icon={<FileExcelOutlined />} onClick={() => filteredRecords[0] && handleExportExcel(filteredRecords[0])}>Excel</Button>
+            <Button size="small" icon={<FilePdfOutlined />} onClick={() => filteredRecords[0] && handleExportPDF(filteredRecords[0])}>PDF</Button>
           </Space>
         }
       >
@@ -756,13 +1033,28 @@ export default function Review() {
                     <div style={{ padding: 16, textAlign: 'center' }}>
                       <div style={{ marginBottom: 16 }}>选择导出格式：</div>
                       <Space>
-                        <Button type="primary" size="large" icon={<FileExcelOutlined />}>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<FileExcelOutlined />}
+                          onClick={() => currentRecord && handleExportExcel(currentRecord)}
+                        >
                           导出 Excel
                         </Button>
-                        <Button type="primary" size="large" icon={<FilePdfOutlined />} style={{ background: '#ff4d4f', borderColor: '#ff4d4f' }}>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<FilePdfOutlined />}
+                          style={{ background: '#ff4d4f', borderColor: '#ff4d4f' }}
+                          onClick={() => currentRecord && handleExportPDF(currentRecord)}
+                        >
                           导出 PDF
                         </Button>
-                        <Button size="large" icon={<PrinterOutlined />}>
+                        <Button
+                          size="large"
+                          icon={<PrinterOutlined />}
+                          onClick={() => currentRecord && handlePrint(currentRecord)}
+                        >
                           打印报表
                         </Button>
                       </Space>

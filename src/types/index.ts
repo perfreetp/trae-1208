@@ -105,3 +105,22 @@ export interface ForecastFactor {
   weatherCondition: string
   shiftArrangement: string
 }
+
+export interface ScheduleVersion {
+  id: string
+  name: string
+  createdAt: string
+  remark: string
+  items: ScheduleItem[]
+  estimatedCost: number
+  estimatedPeak: number
+  estimatedPeakRisk: 'low' | 'medium' | 'high'
+  estimatedPeakSaving: number
+}
+
+export interface CrossWindowState {
+  forecastHighRiskHours: number[]
+  fromForecastJump: boolean
+  highlightRiskSlots: boolean
+  lastScheduleVersionId: string | null
+}
