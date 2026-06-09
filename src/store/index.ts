@@ -344,25 +344,11 @@ export const useEnergyStore = create<EnergyStore>((set, get) => ({
     const newItems = [...state.scheduleItems, item]
     const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
     const peak = computePeakFromSchedule(profiles)
-    const workshops = state.workshops.map((w) => w.id === 'w5' && peak.peak < 2500 ? { ...w, status: 'running' as const, efficiency: 88 } : w)
-    return {
-      scheduleItems: newItems,
-      loadProfiles: profiles,
-      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
-      peakLoad: peak.peak,
-      workshops,
-      currentVersionId: null
-    }
-  }),
-  updateScheduleItem: (id, updates) => set((state) => {
-    const newItems = state.scheduleItems.map((s) => (s.id === id ? { ...s, ...updates } : s))
-    const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
-    const peak = computePeakFromSchedule(profiles)
-    const prevCritical = state.alarms.filter((a) => a.type === 'over_demand' && a.level === 'critical' && !a.resolved).length
     let alarms = state.alarms
-    if (peak.peak > state.demandRedLine && prevCritical === 0) {
+    const hasOverDemandAlarm = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    if (peak.peak > state.demandRedLine && !hasOverDemandAlarm) {
       alarms = [
-        ...alarms.filter((a) => !(a.type === 'over_demand' && a.title === '峰值用电超需量预警(自动)')),
+        ...alarms,
         {
           id: `auto_alarm_${Date.now()}`,
           type: 'over_demand',
@@ -374,14 +360,62 @@ export const useEnergyStore = create<EnergyStore>((set, get) => ({
           resolved: false
         }
       ]
-    } else if (peak.peak <= state.demandRedLine && prevCritical > 0) {
-      alarms = alarms.map((a) => (a.type === 'over_demand' && a.title.includes('(自动)') ? { ...a, resolved: true } : a))
+    } else if (peak.peak <= state.demandRedLine && hasOverDemandAlarm) {
+      alarms = alarms.map((a) => a.type === 'over_demand' ? { ...a, resolved: true } : a)
     }
+    const hasActiveOverDemand = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    const workshops = state.workshops.map((w) => {
+      if (w.id === 'w5') {
+        return hasActiveOverDemand ? { ...w, status: 'abnormal' as const, efficiency: 75 } : { ...w, status: 'running' as const, efficiency: 88 }
+      }
+      return w
+    })
     return {
       scheduleItems: newItems,
       loadProfiles: profiles,
       currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
       peakLoad: peak.peak,
+      workshops,
+      alarms,
+      currentVersionId: null
+    }
+  }),
+  updateScheduleItem: (id, updates) => set((state) => {
+    const newItems = state.scheduleItems.map((s) => (s.id === id ? { ...s, ...updates } : s))
+    const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
+    const peak = computePeakFromSchedule(profiles)
+    let alarms = state.alarms
+    const hasOverDemandAlarm = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    if (peak.peak > state.demandRedLine && !hasOverDemandAlarm) {
+      alarms = [
+        ...alarms,
+        {
+          id: `auto_alarm_${Date.now()}`,
+          type: 'over_demand',
+          level: 'critical',
+          title: '峰值用电超需量预警(自动)',
+          description: `排程调整后，${peak.peakHour}:00 预计最大负荷达到 ${peak.peak}kW，超出需量红线 ${state.demandRedLine}kW`,
+          time: new Date().toISOString().slice(0, 16).replace('T', ' '),
+          source: '排程引擎',
+          resolved: false
+        }
+      ]
+    } else if (peak.peak <= state.demandRedLine && hasOverDemandAlarm) {
+      alarms = alarms.map((a) => a.type === 'over_demand' ? { ...a, resolved: true } : a)
+    }
+    const hasActiveOverDemand = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    const workshops = state.workshops.map((w) => {
+      if (w.id === 'w5') {
+        return hasActiveOverDemand ? { ...w, status: 'abnormal' as const, efficiency: 75 } : { ...w, status: 'running' as const, efficiency: 88 }
+      }
+      return w
+    })
+    return {
+      scheduleItems: newItems,
+      loadProfiles: profiles,
+      currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
+      peakLoad: peak.peak,
+      workshops,
       alarms,
       currentVersionId: null
     }
@@ -390,11 +424,39 @@ export const useEnergyStore = create<EnergyStore>((set, get) => ({
     const newItems = state.scheduleItems.filter((s) => s.id !== id)
     const profiles = computeLoadProfilesFromSchedule(newItems, state.demandRedLine)
     const peak = computePeakFromSchedule(profiles)
+    let alarms = state.alarms
+    const hasOverDemandAlarm = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    if (peak.peak <= state.demandRedLine && hasOverDemandAlarm) {
+      alarms = alarms.map((a) => a.type === 'over_demand' ? { ...a, resolved: true } : a)
+    } else if (peak.peak > state.demandRedLine && !hasOverDemandAlarm) {
+      alarms = [
+        ...alarms,
+        {
+          id: `auto_alarm_${Date.now()}`,
+          type: 'over_demand',
+          level: 'critical',
+          title: '峰值用电超需量预警(自动)',
+          description: `排程调整后，${peak.peakHour}:00 预计最大负荷达到 ${peak.peak}kW，超出需量红线 ${state.demandRedLine}kW`,
+          time: new Date().toISOString().slice(0, 16).replace('T', ' '),
+          source: '排程引擎',
+          resolved: false
+        }
+      ]
+    }
+    const hasActiveOverDemand = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    const workshops = state.workshops.map((w) => {
+      if (w.id === 'w5') {
+        return hasActiveOverDemand ? { ...w, status: 'abnormal' as const, efficiency: 75 } : { ...w, status: 'running' as const, efficiency: 88 }
+      }
+      return w
+    })
     return {
       scheduleItems: newItems,
       loadProfiles: profiles,
       currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad,
       peakLoad: peak.peak,
+      workshops,
+      alarms,
       currentVersionId: null
     }
   }),
@@ -408,12 +470,27 @@ export const useEnergyStore = create<EnergyStore>((set, get) => ({
       currentLoad: profiles[new Date().getHours()]?.electricity || state.currentLoad
     })
   },
-  resolveAlarm: (id) => set((state) => ({
-    alarms: state.alarms.map((a) => (a.id === id ? { ...a, resolved: true } : a))
-  })),
-  resolveAllAlarms: () => set((state) => ({
-    alarms: state.alarms.map((a) => ({ ...a, resolved: true }))
-  })),
+  resolveAlarm: (id) => set((state) => {
+    const alarms = state.alarms.map((a) => (a.id === id ? { ...a, resolved: true } : a))
+    const hasActiveOverDemand = alarms.some(a => a.type === 'over_demand' && !a.resolved)
+    const workshops = state.workshops.map((w) => {
+      if (w.id === 'w5') {
+        return hasActiveOverDemand ? { ...w, status: 'abnormal' as const, efficiency: 75 } : { ...w, status: 'running' as const, efficiency: 88 }
+      }
+      return w
+    })
+    return { alarms, workshops }
+  }),
+  resolveAllAlarms: () => set((state) => {
+    const alarms = state.alarms.map((a) => ({ ...a, resolved: true }))
+    const workshops = state.workshops.map((w) => {
+      if (w.id === 'w5') {
+        return { ...w, status: 'running' as const, efficiency: 88
+      }
+      return w
+    })
+    return { alarms, workshops }
+  }),
   selectPlan: (id) => set({ selectedPlanId: id }),
   addReviewRecord: (record) => set((state) => ({ reviewRecords: [record, ...state.reviewRecords] })),
   updateReviewRecord: (id, updates) => set((state) => ({

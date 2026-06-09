@@ -734,7 +734,7 @@ export default function Schedule() {
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" size="small" preserve={false}>
           <Form.Item

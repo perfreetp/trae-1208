@@ -868,7 +868,7 @@ export default function Review() {
         onOk={handleSubmit}
         onCancel={() => setAddModalOpen(false)}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={addForm} layout="vertical" size="small">
           <Row gutter={12}>
@@ -1001,8 +1001,16 @@ export default function Review() {
         onClose={() => setDetailDrawer(false)}
         extra={
           <Space>
-            <Button size="small" icon={<PrinterOutlined />}>打印</Button>
-            <Button size="small" icon={<ExportOutlined />}>导出PDF</Button>
+            <Button
+              size="small"
+              icon={<PrinterOutlined />}
+              onClick={() => currentRecord && handlePrint(currentRecord)}
+            >打印</Button>
+            <Button
+              size="small"
+              icon={<ExportOutlined />}
+              onClick={() => currentRecord && handleExportPDF(currentRecord)}
+            >导出PDF</Button>
             {currentRecord && (
               <Button
                 size="small"

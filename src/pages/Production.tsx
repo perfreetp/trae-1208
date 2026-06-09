@@ -499,7 +499,7 @@ export default function Production() {
         onOk={handleSubmit}
         onCancel={() => setOrderModalOpen(false)}
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={12}>
