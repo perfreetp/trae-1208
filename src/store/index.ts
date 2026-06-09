@@ -15,6 +15,41 @@ import type {
   CrossWindowState
 } from '@/types'
 
+const STORAGE_KEY = 'energy-workbench-store-v1'
+const CHANNEL_NAME = 'energy-workbench-sync'
+
+let bc: BroadcastChannel | null = null
+if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+  try { bc = new BroadcastChannel(CHANNEL_NAME) } catch {}
+}
+
+let isApplyingRemote = false
+let syncToken = 0
+
+const readFromStorage = <T>(fallback: T): T => {
+  try {
+    if (typeof localStorage === 'undefined') return fallback
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw)
+    return { ...fallback, ...parsed }
+  } catch { return fallback }
+}
+
+const writeToStorage = (state: any) => {
+  try {
+    if (typeof localStorage === 'undefined') return
+    const pick: any = {}
+    const syncKeys = [
+      'scheduleItems','alarms','workOrders','loadProfiles','peakLoad','workshops',
+      'reviewRecords','forecastFactors','scheduleVersions','currentVersionId','crossWindow',
+      'selectedPlanId','currentDate','equipments','shifts'
+    ]
+    syncKeys.forEach((k) => { if ((state as any)[k] !== undefined) pick[k] = (state as any)[k] })
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(pick))
+  } catch {}
+}
+
 const timeToMinutes = (t: string) => {
   const [h, m] = t.split(':').map(Number)
   return h * 60 + m
@@ -465,3 +500,67 @@ export const useEnergyStore = create<EnergyStore>((set, get) => ({
     crossWindow: { ...state.crossWindow, highlightRiskSlots: on }
   }))
 }))
+
+useEnergyStore.subscribe((state, prevState) => {
+  if (isApplyingRemote) return
+  syncToken++
+  writeToStorage(state)
+  if (bc) {
+    try {
+      const payload: any = {}
+      const syncKeys = [
+        'scheduleItems','alarms','workOrders','loadProfiles','peakLoad','workshops',
+        'reviewRecords','forecastFactors','scheduleVersions','currentVersionId','crossWindow',
+        'selectedPlanId','currentDate','equipments','shifts'
+      ]
+      syncKeys.forEach((k) => { payload[k] = (state as any)[k] })
+      bc.postMessage({ type: 'STATE_SYNC', token: syncToken, payload })
+    } catch {}
+  }
+})
+
+const applyRemoteState = (payload: any) => {
+  isApplyingRemote = true
+  try {
+    useEnergyStore.setState((prev) => ({
+      ...prev,
+      scheduleItems: payload.scheduleItems ?? prev.scheduleItems,
+      alarms: payload.alarms ?? prev.alarms,
+      workOrders: payload.workOrders ?? prev.workOrders,
+      loadProfiles: payload.loadProfiles ?? prev.loadProfiles,
+      peakLoad: payload.peakLoad ?? prev.peakLoad,
+      workshops: payload.workshops ?? prev.workshops,
+      reviewRecords: payload.reviewRecords ?? prev.reviewRecords,
+      forecastFactors: payload.forecastFactors ?? prev.forecastFactors,
+      scheduleVersions: payload.scheduleVersions ?? prev.scheduleVersions,
+      currentVersionId: payload.currentVersionId ?? prev.currentVersionId,
+      crossWindow: payload.crossWindow ?? prev.crossWindow,
+      selectedPlanId: payload.selectedPlanId ?? prev.selectedPlanId,
+      currentDate: payload.currentDate ?? prev.currentDate,
+      equipments: payload.equipments ?? prev.equipments,
+      shifts: payload.shifts ?? prev.shifts
+    }))
+  } finally {
+    setTimeout(() => { isApplyingRemote = false }, 0)
+  }
+}
+
+if (typeof window !== 'undefined') {
+  if (bc) {
+    bc.onmessage = (ev) => {
+      if (ev.data?.type === 'STATE_SYNC') {
+        applyRemoteState(ev.data.payload)
+      }
+    }
+  }
+  window.addEventListener('storage', (ev) => {
+    if (ev.key === STORAGE_KEY && ev.newValue && !isApplyingRemote) {
+      try {
+        const parsed = JSON.parse(ev.newValue)
+        applyRemoteState(parsed)
+      } catch {}
+    }
+  })
+  const stored = readFromStorage<any>(null)
+  if (stored) applyRemoteState(stored)
+}

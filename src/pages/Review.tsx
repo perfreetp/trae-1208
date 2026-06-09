@@ -421,171 +421,265 @@ export default function Review() {
     const actualCost = 260000 + record.deviation * 5000
     const diff = actualCost - planCost
     const diffPct = record.deviation
+    const reportNo = `ESR-${record.date}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`
+    const generatedAt = new Date().toLocaleString('zh-CN')
+    const elecPlan = Math.round(planCost * 0.65)
+    const elecActual = Math.round(actualCost * 0.65)
+    const steamPlan = Math.round(planCost * 0.2)
+    const steamActual = Math.round(actualCost * 0.2)
+    const airPlan = Math.round(planCost * 0.08)
+    const airActual = Math.round(actualCost * 0.08)
+    const demandPlan = Math.round(planCost * 0.07)
+    const demandActual = Math.round(actualCost * 0.07)
+    const diffColor = diff > 0 ? '#ff4d4f' : '#52c41a'
+    const statusColor = record.approvalStatus === 'approved' ? '#52c41a' : record.approvalStatus === 'rejected' ? '#ff4d4f' : '#faad14'
+    const statusText = record.approvalStatus === 'approved' ? '✓ 已通过' : record.approvalStatus === 'rejected' ? '✗ 已驳回' : '⏳ 待审批'
 
-    const htmlContent = `
-<!DOCTYPE html>
-<html>
+    const htmlContent = `<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>复盘报表 - ${record.date}</title>
+<title>复盘报表 ${record.date} - ${reportNo}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Microsoft YaHei', sans-serif; padding: 40px; color: #262626; max-width: 800px; margin: 0 auto; }
-  .header { text-align: center; border-bottom: 2px solid #1677ff; padding-bottom: 20px; margin-bottom: 24px; }
-  .header h1 { color: #1677ff; font-size: 28px; margin-bottom: 8px; }
-  .header p { color: #8c8c8c; font-size: 13px; }
-  .section { margin-bottom: 28px; }
-  .section h2 { font-size: 16px; color: #1677ff; border-left: 4px solid #1677ff; padding-left: 10px; margin-bottom: 14px; background: #e6f4ff; padding: 8px 12px; border-radius: 0 4px 4px 0; }
-  .info-grid { display: grid; grid-template-columns: 120px 1fr; gap: 10px; font-size: 14px; }
+  html, body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; color: #262626; background: #fff; }
+  body { padding: 40px 48px; max-width: 900px; margin: 0 auto; }
+  .page-header { text-align: center; border-bottom: 2px solid #1677ff; padding-bottom: 20px; margin-bottom: 28px; }
+  .page-header h1 { color: #1677ff; font-size: 26px; margin-bottom: 8px; letter-spacing: 2px; }
+  .page-header p { color: #8c8c8c; font-size: 13px; }
+  .section { margin-bottom: 28px; page-break-inside: avoid; }
+  .section-title {
+    font-size: 16px; color: #1677ff; font-weight: 600;
+    border-left: 4px solid #1677ff; padding: 8px 14px;
+    background: #e6f4ff; border-radius: 0 4px 4px 0; margin-bottom: 14px;
+  }
+  .info-grid { display: grid; grid-template-columns: 140px 1fr; gap: 10px 16px; font-size: 14px; }
   .info-grid .label { color: #8c8c8c; }
   .info-grid .value { font-weight: 500; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
   th, td { border: 1px solid #d9d9d9; padding: 10px 12px; text-align: left; }
   th { background: #fafafa; color: #595959; font-weight: 600; }
-  .row-diff { color: ${diff > 0 ? '#ff4d4f' : '#52c41a'}; font-weight: 600; }
-  .deviation-tag { display: inline-block; padding: 4px 12px; border-radius: 4px; background: ${diffPct > 5 ? '#fff1f0' : '#f6ffed'}; color: ${diffPct > 5 ? '#ff4d4f' : '#52c41a'}; font-weight: 600; border: 1px solid ${diffPct > 5 ? '#ffa39e' : '#b7eb8f'}; }
-  .approval-box { padding: 16px; background: ${record.approvalStatus === 'approved' ? '#f6ffed' : record.approvalStatus === 'rejected' ? '#fff1f0' : '#fff7e6'}; border-radius: 6px; border-left: 4px solid ${record.approvalStatus === 'approved' ? '#52c41a' : record.approvalStatus === 'rejected' ? '#ff4d4f' : '#faad14'}; }
-  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px dashed #d9d9d9; text-align: center; color: #8c8c8c; font-size: 12px; }
-  .stamp-box { float: right; width: 120px; height: 80px; border: 2px dashed ${record.approvalStatus === 'approved' ? '#52c41a' : '#d9d9d9'}; color: ${record.approvalStatus === 'approved' ? '#52c41a' : '#bfbfbf'}; display: flex; align-items: center; justify-content: center; font-weight: 700; transform: rotate(-10deg); border-radius: 50%; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total-row { background: #f0f5ff; font-weight: 600; }
+  .cell-diff { color: ${diffColor}; font-weight: 600; }
+  .tag {
+    display: inline-block; padding: 4px 12px; border-radius: 4px;
+    background: ${diffPct > 5 ? '#fff1f0' : '#f6ffed'};
+    color: ${diffPct > 5 ? '#ff4d4f' : '#52c41a'};
+    font-weight: 600; border: 1px solid ${diffPct > 5 ? '#ffa39e' : '#b7eb8f'};
+  }
+  .approval-box {
+    padding: 16px 20px; border-radius: 6px;
+    background: ${record.approvalStatus === 'approved' ? '#f6ffed' : record.approvalStatus === 'rejected' ? '#fff1f0' : '#fff7e6'};
+    border-left: 4px solid ${statusColor}; line-height: 1.9;
+  }
+  .remarks-box { padding: 14px 16px; background: #fafafa; border-radius: 4px; font-size: 14px; line-height: 1.8; }
+  .footer { margin-top: 36px; padding-top: 16px; border-top: 1px dashed #d9d9d9; text-align: center; color: #8c8c8c; font-size: 12px; line-height: 1.8; }
+  .meta-bar {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    background: #fafafa; border-radius: 6px; padding: 14px 18px; margin-bottom: 18px;
+    border: 1px solid #f0f0f0;
+  }
+  .stamp-box {
+    width: 110px; height: 110px; border-radius: 50%;
+    border: 2px dashed ${statusColor}; color: ${statusColor};
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; transform: rotate(-12deg);
+    line-height: 1.4;
+  }
+  .stamp-box small { font-size: 11px; font-weight: 400; opacity: 0.7; }
+  .cause-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    background: #fff7e6; color: #d46b08; font-size: 12px; margin-right: 4px;
+  }
+  @media print {
+    body { padding: 0; }
+    .page-header { border-bottom-color: #1677ff; }
+    .no-print { display: none !important; }
+  }
+  .no-print { padding: 14px 18px; background: #1677ff; color: #fff; border-radius: 8px; margin-bottom: 16px; text-align: center; }
+  .no-print .btn { background: #fff; color: #1677ff; padding: 6px 16px; border-radius: 4px; margin-left: 10px; cursor: pointer; border: none; font-weight: 600; }
 </style>
 </head>
 <body>
-  <div class="header">
-    <h1>📊 工厂多能源排程复盘报表</h1>
-    <p>报告编号: ESR-${record.date}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')} | 生成时间: ${new Date().toLocaleString()}</p>
-  </div>
 
-  <div class="section">
-    <h2>一、复盘基础信息</h2>
-    <div style="display: flex; justify-content: space-between;">
-      <div class="info-grid">
-        <div class="label">复盘日期</div><div class="value">${record.date}</div>
-        <div class="label">排程方案</div><div class="value">${record.schedulePlan}</div>
-        <div class="label">审批人</div><div class="value">${record.approver}</div>
+<div class="no-print">
+  📄 报表已生成 &nbsp;|&nbsp;
+  <button class="btn" onclick="window.print()">🖨 打印 / 另存为 PDF</button>
+  <button class="btn" onclick="window.close()">关闭</button>
+</div>
+
+<div class="page-header">
+  <h1>📊 工厂多能源排程复盘报表</h1>
+  <p>报告编号: ${reportNo} &nbsp;|&nbsp; 生成时间: ${generatedAt}</p>
+</div>
+
+<div class="meta-bar">
+  <div class="info-grid">
+    <div class="label">复盘日期</div><div class="value">${record.date}</div>
+    <div class="label">排程方案</div><div class="value">${record.schedulePlan}</div>
+    <div class="label">审批人</div><div class="value">${record.approver}</div>
+  </div>
+  <div class="stamp-box">
+    ${statusText}
+    <small>${new Date().toISOString().slice(0,10)}</small>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">一、执行情况与偏差分析</div>
+  <div class="info-grid" style="grid-template-columns: 160px 1fr;">
+    <div class="label">实际执行摘要</div>
+    <div class="value">${record.actualExecution}</div>
+    <div class="label">整体偏差率</div>
+    <div class="value"><span class="tag">${diffPct}%</span></div>
+    <div class="label">偏差原因分析</div>
+    <div class="value">
+      <div style="padding: 8px 12px; background:#fafafa; border-radius:4px; color:#595959; line-height:1.7;">${record.deviationReason}</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">二、费用对比分析（单位：元人民币）</div>
+  <table>
+    <thead>
+      <tr>
+        <th>费用项目</th>
+        <th class="num">计划金额</th>
+        <th class="num">实际金额</th>
+        <th class="num">差额</th>
+        <th class="num">占计划比</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>⚡ 电费（含分时电价）</td>
+        <td class="num">¥${elecPlan.toLocaleString()}</td>
+        <td class="num">¥${elecActual.toLocaleString()}</td>
+        <td class="num cell-diff">+¥${(elecActual - elecPlan).toLocaleString()}</td>
+        <td class="num">${(elecActual / elecPlan * 100).toFixed(1)}%</td>
+      </tr>
+      <tr>
+        <td>🔥 蒸汽费用</td>
+        <td class="num">¥${steamPlan.toLocaleString()}</td>
+        <td class="num">¥${steamActual.toLocaleString()}</td>
+        <td class="num cell-diff">+¥${(steamActual - steamPlan).toLocaleString()}</td>
+        <td class="num">${(steamActual / steamPlan * 100).toFixed(1)}%</td>
+      </tr>
+      <tr>
+        <td>💨 压缩空气费用</td>
+        <td class="num">¥${airPlan.toLocaleString()}</td>
+        <td class="num">¥${airActual.toLocaleString()}</td>
+        <td class="num cell-diff">+¥${(airActual - airPlan).toLocaleString()}</td>
+        <td class="num">${(airActual / airPlan * 100).toFixed(1)}%</td>
+      </tr>
+      <tr>
+        <td>📈 需量费（容量电价）</td>
+        <td class="num">¥${demandPlan.toLocaleString()}</td>
+        <td class="num">¥${demandActual.toLocaleString()}</td>
+        <td class="num cell-diff">+¥${(demandActual - demandPlan).toLocaleString()}</td>
+        <td class="num">${(demandActual / demandPlan * 100).toFixed(1)}%</td>
+      </tr>
+      <tr class="total-row">
+        <td>合计（TOTAL）</td>
+        <td class="num">¥${planCost.toLocaleString()}</td>
+        <td class="num">¥${actualCost.toLocaleString()}</td>
+        <td class="num cell-diff">+¥${diff.toLocaleString()} &nbsp;(${diffPct}%)</td>
+        <td class="num">${(actualCost / planCost * 100).toFixed(1)}%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <div class="section-title">三、审批记录与意见</div>
+  <div class="approval-box">
+    <div style="margin-bottom: 8px;">
+      <b>审批人：</b>${record.approver} &nbsp;&nbsp;
+      <b>审批状态：</b><span style="color: ${statusColor}; font-weight: 600;">${statusText}</span>
+    </div>
+    <div style="border-top: 1px dashed ${statusColor}33; padding-top: 10px; margin-top: 8px;">
+      <b>审批意见：</b>
+      <div style="margin-top: 6px; padding: 8px 0; font-size: 14px; color: #434343;">
+        ${record.approvalOpinion || '<span style="color:#bfbfbf;">（暂无审批意见）</span>'}
       </div>
-      <div class="stamp-box">
-        ${record.approvalStatus === 'approved' ? '✓ 已通过' : record.approvalStatus === 'rejected' ? '✗ 已驳回' : '待审批'}
-      </div>
     </div>
   </div>
+</div>
 
-  <div class="section">
-    <h2>二、执行情况与偏差分析</h2>
-    <div class="info-grid" style="grid-template-columns: 140px 1fr; margin-bottom: 14px;">
-      <div class="label">实际执行摘要</div>
-      <div class="value">${record.actualExecution}</div>
-      <div class="label">偏差率</div>
-      <div class="value"><span class="deviation-tag">${diffPct}%</span></div>
-      <div class="label">偏差原因分析</div>
-      <div class="value">${record.deviationReason}</div>
-    </div>
+<div class="section">
+  <div class="section-title">四、备注说明</div>
+  <div class="remarks-box">
+    ${record.remarks ? record.remarks : '<span style="color:#bfbfbf;">（无备注）</span>'}
   </div>
+</div>
 
-  <div class="section">
-    <h2>三、费用对比分析（单位：元）</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>项目</th>
-          <th style="text-align:right">计划金额</th>
-          <th style="text-align:right">实际金额</th>
-          <th style="text-align:right">偏差</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>电费</td>
-          <td style="text-align:right">¥${Math.round(planCost * 0.65).toLocaleString()}</td>
-          <td style="text-align:right">¥${Math.round(actualCost * 0.65).toLocaleString()}</td>
-          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.65).toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>蒸汽费</td>
-          <td style="text-align:right">¥${Math.round(planCost * 0.2).toLocaleString()}</td>
-          <td style="text-align:right">¥${Math.round(actualCost * 0.2).toLocaleString()}</td>
-          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.2).toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>空压费</td>
-          <td style="text-align:right">¥${Math.round(planCost * 0.08).toLocaleString()}</td>
-          <td style="text-align:right">¥${Math.round(actualCost * 0.08).toLocaleString()}</td>
-          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.08).toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>需量费</td>
-          <td style="text-align:right">¥${Math.round(planCost * 0.07).toLocaleString()}</td>
-          <td style="text-align:right">¥${Math.round(actualCost * 0.07).toLocaleString()}</td>
-          <td class="row-diff" style="text-align:right">+¥${Math.round(diff * 0.07).toLocaleString()}</td>
-        </tr>
-        <tr style="background:#fafafa; font-weight:600">
-          <td>合计</td>
-          <td style="text-align:right">¥${planCost.toLocaleString()}</td>
-          <td style="text-align:right">¥${actualCost.toLocaleString()}</td>
-          <td class="row-diff" style="text-align:right">+¥${diff.toLocaleString()} (${diffPct}%)</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+<div class="footer">
+  <p>本报表由「工厂多能源排程工作台」自动生成 · ESR-v1.0</p>
+  <p>如有疑问请联系能源管理部门 &nbsp;·&nbsp; 报告编号：${reportNo} &nbsp;·&nbsp; 打印人：能源主管</p>
+  <p style="margin-top:4px;">— 请核对上述内容，如有偏差请在 24 小时内反馈 —</p>
+</div>
 
-  <div class="section">
-    <h2>四、审批记录</h2>
-    <div class="approval-box">
-      <div style="margin-bottom:8px;"><b>审批人：</b>${record.approver} &nbsp;&nbsp; <b>状态：</b>${record.approvalStatus === 'approved' ? '✅ 已通过' : record.approvalStatus === 'rejected' ? '❌ 已驳回' : '⏳ 待审批'}</div>
-      <div><b>审批意见：</b>${record.approvalOpinion || '（暂无审批意见）'}</div>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>五、备注说明</h2>
-    <div style="padding: 12px; background: #fafafa; border-radius: 4px; font-size: 14px; line-height: 1.8;">
-      ${record.remarks || '（无）'}
-    </div>
-  </div>
-
-  <div class="footer">
-    <p>本报表由「工厂多能源排程工作台」自动生成 | ESR-v1.0</p>
-    <p style="margin-top: 4px;">如有疑问请联系能源管理部门 · 本报告为系统导出版本</p>
-  </div>
 </body>
 </html>`
 
-    const fileName = `复盘报表_${record.date}_${Date.now()}.html`
-    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-
-    const printWindow = window.open(url, '_blank', 'width=900,height=1000')
+    const winName = `pdf_report_${record.date}`
+    const printWindow = window.open('', winName, 'width=960,height=1100,menubar=no,toolbar=no')
     if (printWindow) {
+      printWindow.document.open()
+      printWindow.document.write(htmlContent)
+      printWindow.document.close()
+      printWindow.focus()
       printWindow.onload = () => {
         setTimeout(() => {
-          printWindow.focus()
-          try { printWindow.print() } catch {}
-        }, 800)
+          try { printWindow.print() } catch (e) { console.warn('Print triggered manually', e) }
+        }, 600)
       }
     }
 
+    const fileName = `复盘报表_${record.date}_${reportNo}.html`
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.setAttribute('href', url)
-    link.setAttribute('download', fileName)
-    link.style.visibility = 'hidden'
+    link.href = url
+    link.download = fileName
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
 
-    message.success({
+    Modal.success({
+      title: '📄 复盘报表导出成功',
+      width: 520,
       content: (
-        <div>
-          PDF 报表已生成！
-          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-            1. 已在新窗口打开（可 Ctrl+P 保存为PDF）<br />
-            2. 同时下载了 HTML 版本: {fileName}<br />
-            3. 浏览器默认下载目录
+        <div style={{ lineHeight: 2 }}>
+          <div><b>报表编号：</b>{reportNo}</div>
+          <div><b>复盘日期：</b>{record.date}</div>
+          <Divider style={{ margin: '12px 0' }} />
+          <div style={{ background: '#e6f4ff', padding: '10px 14px', borderRadius: 6, marginBottom: 10 }}>
+            <b style={{ color: '#1677ff' }}>✓ 操作 1 · 保存为真正 PDF：</b>
+            <div style={{ fontSize: 13, color: '#595959', marginTop: 4, paddingLeft: 18 }}>
+              在新弹出的打印窗口中 → 选择 <b>"Microsoft Print to PDF"</b> 或 <b>"另存为 PDF"</b> → 点击保存
+            </div>
+          </div>
+          <div style={{ background: '#f6ffed', padding: '10px 14px', borderRadius: 6, marginBottom: 10 }}>
+            <b style={{ color: '#52c41a' }}>✓ 操作 2 · 备份 HTML 已下载：</b>
+            <div style={{ fontSize: 13, color: '#595959', marginTop: 4, paddingLeft: 18 }}>
+              <code style={{ background: '#fff', padding: '2px 6px', borderRadius: 3 }}>{fileName}</code>
+            </div>
+          </div>
+          <div style={{ background: '#fff7e6', padding: '10px 14px', borderRadius: 6 }}>
+            <b style={{ color: '#d46b08' }}>📂 保存位置：</b>
+            <div style={{ fontSize: 13, color: '#595959', marginTop: 4, paddingLeft: 18 }}>
+              浏览器默认下载目录（可在浏览器设置 → 下载内容中查看）
+            </div>
           </div>
         </div>
       ),
-      duration: 5
+      okText: '知道了'
     })
 
-    setTimeout(() => URL.revokeObjectURL(url), 30000)
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
   }
 
   const handlePrint = (record: ReviewRecord) => {

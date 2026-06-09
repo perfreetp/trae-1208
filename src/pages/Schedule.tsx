@@ -31,11 +31,10 @@ import {
   ThunderboltOutlined,
   FireOutlined,
   CloudOutlined,
-  BatteryChargingOutlined,
-  BatteryFullOutlined,
+  SaveOutlined,
+  ImportOutlined,
   EditOutlined,
   DeleteOutlined,
-  SaveOutlined,
   ReloadOutlined,
   PlayCircleOutlined,
   HistoryOutlined,
@@ -58,8 +57,8 @@ const typeConfig: Record<string, { color: string; icon: React.ReactNode; label: 
   equipment: { color: '#1677ff', icon: <ThunderboltOutlined />, label: '设备运行' },
   boiler: { color: '#fa8c16', icon: <FireOutlined />, label: '锅炉供汽' },
   compressor: { color: '#52c41a', icon: <CloudOutlined />, label: '空压机' },
-  storage_charge: { color: '#13c2c2', icon: <BatteryChargingOutlined />, label: '储能充电' },
-  storage_discharge: { color: '#722ed1', icon: <BatteryFullOutlined />, label: '储能放电' }
+  storage_charge: { color: '#13c2c2', icon: <ImportOutlined />, label: '储能充电' },
+  storage_discharge: { color: '#722ed1', icon: <SaveOutlined />, label: '储能放电' }
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
@@ -119,15 +118,11 @@ export default function Schedule() {
   const [copyVersionId, setCopyVersionId] = useState<string | null>(null)
   const [copyName, setCopyName] = useState('')
 
-  const [fromForecastAlertVisible, setFromForecastAlertVisible] = useState(crossWindow.fromForecastJump)
-
   useEffect(() => {
-    if (crossWindow.fromForecastJump) {
-      setTimeout(() => {
-        clearFromForecastFlag()
-      }, 6000)
+    if (crossWindow.fromForecastJump && crossWindow.highlightRiskSlots === false) {
+      setHighlightRiskSlots(true)
     }
-  }, [crossWindow.fromForecastJump, clearFromForecastFlag])
+  }, [crossWindow.fromForecastJump, crossWindow.highlightRiskSlots, setHighlightRiskSlots])
 
   const groupedItems: Record<string, ScheduleItem[]> = useMemo(() => {
     const g: Record<string, ScheduleItem[]> = {
@@ -464,7 +459,7 @@ export default function Schedule() {
         </Space>
       </div>
 
-      {fromForecastAlertVisible && crossWindow.fromForecastJump && (
+      {crossWindow.fromForecastJump && (
         <Alert
           type="warning"
           showIcon
@@ -485,28 +480,34 @@ export default function Schedule() {
               <span style={{ color: '#8c8c8c' }}>
                 建议：在这些时段增加储能放电 / 推迟非关键设备启动
               </span>
-              <Button
-                type="link"
-                size="small"
-                icon={<BatteryFullOutlined />}
-                onClick={() => {
-                  addScheduleItem({
-                    id: `sch_quick_${Date.now()}`,
-                    type: 'storage_discharge',
-                    name: '储能放电(快速)',
-                    startTime: `${crossWindow.forecastHighRiskHours[0].toString().padStart(2, '0')}:00`,
-                    endTime: `${(crossWindow.forecastHighRiskHours[crossWindow.forecastHighRiskHours.length - 1] + 1).toString().padStart(2, '0')}:00`,
-                    power: 500,
-                    status: 'scheduled'
-                  })
-                  message.success('已快速添加储能放电排程')
-                }}
-              >
-                一键加储能放电
-              </Button>
+              {crossWindow.forecastHighRiskHours.length > 0 && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  onClick={() => {
+                    const hours = [...crossWindow.forecastHighRiskHours].sort((a, b) => a - b)
+                    const start = hours[0]
+                    const end = hours[hours.length - 1] + 1
+                    addScheduleItem({
+                      id: `sch_quick_${Date.now()}`,
+                      type: 'storage_discharge',
+                      name: '储能放电(快速)',
+                      startTime: `${start.toString().padStart(2, '0')}:00`,
+                      endTime: `${end.toString().padStart(2, '0')}:00`,
+                      power: 500,
+                      status: 'scheduled'
+                    })
+                    message.success(`已添加储能放电 ${start.toString().padStart(2,'0')}:00-${end.toString().padStart(2,'0')}:00，覆盖${hours.length}个风险小时`)
+                    clearFromForecastFlag()
+                  }}
+                >
+                  一键加储能放电
+                </Button>
+              )}
             </Space>
           }
-          onClose={() => setFromForecastAlertVisible(false)}
+          onClose={() => clearFromForecastFlag()}
         />
       )}
 
@@ -575,7 +576,7 @@ export default function Schedule() {
         <Col span={5}>
           <div className="stat-card purple">
             <Statistic
-              title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}><BatteryFullOutlined /> 储能放电</span>}
+              title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}><SaveOutlined /> 储能放电</span>}
               value={storageDischarge}
               suffix="kWh"
               precision={0}

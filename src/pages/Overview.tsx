@@ -1,5 +1,5 @@
 import { Card, Progress, Row, Col, Statistic, Tag, Table, List, Space, Tooltip, Badge } from 'antd'
-import { ThunderboltOutlined, FireOutlined, CloudOutlined, BatteryOutlined, SafetyOutlined, AlertOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, FireOutlined, CloudOutlined, SaveOutlined, SafetyOutlined, AlertOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import { useEnergyStore } from '@/store'
 
@@ -292,7 +292,7 @@ export default function Overview() {
                 { icon: <ThunderboltOutlined style={{ color: '#52c41a' }} />, name: '谷段电价', value: `¥${energyPrices.electricity.valley}/kWh`, tag: '21:00-次日08:00' },
                 { icon: <FireOutlined style={{ color: '#fa541c' }} />, name: '蒸汽', value: `¥${energyPrices.steam}/吨`, tag: '自产为主' },
                 { icon: <CloudOutlined style={{ color: '#13c2c2' }} />, name: '压缩空气', value: `¥${energyPrices.compressedAir}/m³`, tag: '0.7MPa标准' },
-                { icon: <BatteryOutlined style={{ color: '#722ed1' }} />, name: '储能效率', value: `${(1 - energyPrices.storage.discharge / energyPrices.storage.charge * 0.8) * 100}%综合`, tag: '充放循环' }
+                { icon: <SaveOutlined style={{ color: '#722ed1' }} />, name: '储能效率', value: `${(1 - energyPrices.storage.discharge / energyPrices.storage.charge * 0.8) * 100}%综合`, tag: '充放循环' }
               ]}
               renderItem={(item) => (
                 <List.Item>
